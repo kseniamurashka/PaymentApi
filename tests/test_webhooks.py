@@ -26,10 +26,7 @@ def payment_id(client: TestClient) -> int:
 
 
 def signed_request(payment_id: int, status: str) -> tuple[bytes, dict[str, str]]:
-    body = json.dumps(
-        {"payment_id": payment_id, "status": status},
-        indent=2
-    ).encode()
+    body = json.dumps({"payment_id": payment_id, "status": status}, indent=2).encode()
     signature = hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
     return body, {"Content-Type": "application/json", "X-Signature": signature}
 
@@ -65,12 +62,36 @@ def test_signed_webhook_changes_status(
     )
 
 
+@pytest.mark.parametrize(
+    ("current_status", "new_status"),
+    [
+        ("pending", "pending"),
+        ("pending", "refunded"),
+        ("succeeded", "pending"),
+        ("succeeded", "succeeded"),
+        ("succeeded", "failed"),
+        ("failed", "pending"),
+        ("failed", "succeeded"),
+        ("failed", "failed"),
+        ("failed", "refunded"),
+        ("refunded", "pending"),
+        ("refunded", "succeeded"),
+        ("refunded", "failed"),
+        ("refunded", "refunded"),
+    ],
+)
 def test_forbidden_transition_does_not_change_status(
     client: TestClient,
     payment_id: int,
-    db_session: Session
+    db_session: Session,
+    current_status: str,
+    new_status: str,
 ) -> None:
-    body, headers = signed_request(payment_id, "refunded")
+    payment = db_session.get(Payment, payment_id)
+    assert payment is not None
+    payment.status = current_status
+    db_session.commit()
+    body, headers = signed_request(payment_id, new_status)
 
     response = client.post("/webhooks/bank", content=body, headers=headers)
 
@@ -78,7 +99,7 @@ def test_forbidden_transition_does_not_change_status(
     assert response.json() == {"error": "invalid_transition"}
     assert (
         db_session.scalar(select(Payment.status).where(Payment.id == payment_id))
-        == "pending"
+        == current_status
     )
 
 
