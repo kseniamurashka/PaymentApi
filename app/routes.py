@@ -1,6 +1,7 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from pydantic import EmailStr
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -97,6 +98,26 @@ def get_payment(
     if payment is None:
         raise HTTPException(status_code=404, detail="Платеж не найден")
     return payment
+
+
+@router.get("/payments", response_model=list[PaymentResponse])
+def get_payments(
+    session: Annotated[Session, Depends(get_db)],
+    email: EmailStr | None = None,
+    status: Literal["pending", "succeeded", "failed", "refunded"] | None = None,
+) -> list[Payment]:
+    query = select(Payment)
+
+    if email is not None:
+        query = query.where(Payment.email == email)
+
+    if status is not None:
+        query = query.where(Payment.status == status)
+
+    query = query.order_by(Payment.id)
+
+    payments = session.scalars(query)
+    return list(payments)
 
 
 async def verify_bank_signature(

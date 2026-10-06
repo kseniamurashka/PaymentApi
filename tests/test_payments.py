@@ -134,3 +134,46 @@ def test_missing_payment_returns_404(client: TestClient) -> None:
     response = client.get("/payments/999999")
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected_indices"),
+    [
+        ({}, [0, 1, 2]),
+        ({"email": "anna@example.com"}, [0, 1]),
+        ({"status": "succeeded"}, [1, 2]),
+        ({"email": "anna@example.com", "status": "succeeded"}, [1]),
+        ({"email": "nobody@example.com"}, []),
+    ],
+    ids=["no-filters", "email", "status", "both-filters", "no-matches"],
+)
+def test_get_payments_filters(
+    client: TestClient,
+    payment_payload: dict[str, int | str],
+    db_session: Session,
+    filters: dict[str, str],
+    expected_indices: list[int],
+) -> None:
+    payments = [
+        Payment(
+            tariff_id=payment_payload["tariff_id"],
+            email=email,
+            status=status,
+            method="card",
+            amount=1990000,
+            discount=0,
+        )
+        for email, status in [
+            ("anna@example.com", "pending"),
+            ("anna@example.com", "succeeded"),
+            ("boris@example.com", "succeeded"),
+        ]
+    ]
+    db_session.add_all(payments)
+    db_session.commit()
+    expected_ids = [payments[index].id for index in expected_indices]
+
+    response = client.get("/payments", params=filters)
+
+    assert response.status_code == 200
+    assert [payment["id"] for payment in response.json()] == expected_ids
