@@ -1,14 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import Payment, Tariff
-from app.schemas import PaymentCreated, PaymentResponse, TariffResponse
-from app.services import build_schedule, calculate_amount
+from app.schemas import BankWebhook, PaymentCreated, PaymentResponse, TariffResponse
+from app.security import verify_signature
+from app.services import build_schedule, calculate_amount, is_transition_allowed
 
 router = APIRouter()
 
@@ -95,3 +97,35 @@ def get_payment(
     if payment is None:
         raise HTTPException(status_code=404, detail="Платеж не найден")
     return payment
+
+
+async def verify_bank_signature(
+    request: Request,
+    signature: Annotated[str | None, Header(alias="X-Signature")] = None,
+) -> None:
+    body = await request.body()
+
+    if not verify_signature(body, signature, settings.webhook_secret):
+        raise HTTPException(status_code=401, detail="Неверная подпись")
+
+
+@router.post(
+    "/webhooks/bank",
+    dependencies=[Depends(verify_bank_signature)],
+)
+def bank_webhook(
+    data: BankWebhook,
+    response: Response,
+    session: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    payment = session.get(Payment, data.payment_id)
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Платеж не найден")
+
+    if not is_transition_allowed(payment.status, data.status):
+        response.status_code = 409
+        return {"error": "invalid_transition"}
+
+    payment.status = data.status
+    session.commit()
+    return {"result": "ok"}

@@ -55,3 +55,8 @@ class PaymentResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BankWebhook(BaseModel):
+    payment_id: int = Field(gt=0)
+    status: Literal["pending", "succeeded", "failed", "refunded"]

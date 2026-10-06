@@ -35,6 +35,7 @@ def client(db_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
 
     from app import main
+    from app.config import settings
     from app.database import get_db
 
     factory = sessionmaker(bind=db_engine, expire_on_commit=False)
@@ -45,6 +46,7 @@ def client(db_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
 
     monkeypatch.setattr(main, "engine", db_engine)
     monkeypatch.setattr(main, "session_factory", factory)
+    monkeypatch.setattr(settings, "webhook_secret", "test-secret")
     monkeypatch.setitem(main.app.dependency_overrides, get_db, override_get_db)
 
     with TestClient(main.app) as test_client:
