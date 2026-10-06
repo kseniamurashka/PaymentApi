@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -147,6 +147,16 @@ def bank_webhook(
         response.status_code = 409
         return {"error": "invalid_transition"}
 
-    payment.status = data.status
+    result = session.execute(
+        update(Payment)
+        .where(Payment.id == payment.id, Payment.status == payment.status)
+        .values(status=data.status)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        response.status_code = 409
+        return {"error": "invalid_transition"}
+
     session.commit()
     return {"result": "ok"}
